@@ -22,8 +22,24 @@ def calculate_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _find_last_whitespace(text: str, start: int, end: int) -> int:
+    """Знайти позицію останнього пробільного символу на проміжку [start, end)."""
+    for idx in range(end - 1, start - 1, -1):
+        if text[idx].isspace():
+            return idx
+    return -1
+
+
+def _find_first_whitespace(text: str, start: int, end: int) -> int:
+    """Знайти позицію першого пробільного символу на проміжку [start, end)."""
+    for idx in range(start, end):
+        if text[idx].isspace():
+            return idx
+    return -1
+
+
 def split_text_into_chunks(text: str, chunk_size: int, chunk_overlap: int) -> List[str]:
-    """Розбиття тексту на фрагменти заданого розміру з перекриттям."""
+    """Розбиття тексту на фрагменти заданого розміру з перекриттям без розриву слів."""
     cleaned_text = text.strip()
     if not cleaned_text:
         return []
@@ -33,28 +49,65 @@ def split_text_into_chunks(text: str, chunk_size: int, chunk_overlap: int) -> Li
 
     chunks = []
     start = 0
-    while start < len(cleaned_text):
+    text_len = len(cleaned_text)
+
+    while start < text_len:
+        while start < text_len and cleaned_text[start].isspace():
+            start += 1
+        if start >= text_len:
+            break
+
         end = start + chunk_size
-        if end < len(cleaned_text):
+        if end < text_len:
             search_from = start + int(chunk_size * 0.65)
             nl_pos = cleaned_text.rfind("\n", search_from, end)
             if nl_pos > start:
                 end = nl_pos
-            else:
-                space_pos = cleaned_text.rfind(" ", start, end)
-                if space_pos > start:
-                    end = space_pos
+            elif not cleaned_text[end].isspace() and not cleaned_text[end - 1].isspace():
+                ws_pos = _find_last_whitespace(cleaned_text, start, end)
+                if ws_pos > start:
+                    end = ws_pos
+                else:
+                    next_ws = _find_first_whitespace(cleaned_text, end, text_len)
+                    end = next_ws if next_ws != -1 else text_len
+        else:
+            end = text_len
 
         chunk = cleaned_text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-        if end >= len(cleaned_text):
+        if end >= text_len:
             break
-        next_start = max(0, end - chunk_overlap)
-        if next_start > start:
-            space_pos = cleaned_text.find(" ", next_start, end)
-            if space_pos != -1 and space_pos + 1 < end:
-                next_start = space_pos + 1
+
+        next_start = max(0, end - chunk_overlap) if chunk_overlap > 0 else end
+
+        if next_start > 0 and not cleaned_text[next_start].isspace() and not cleaned_text[next_start - 1].isspace():
+            ws_pos = _find_first_whitespace(cleaned_text, next_start, end)
+            if ws_pos != -1:
+                next_start = ws_pos + 1
+            else:
+                prev_ws = _find_last_whitespace(cleaned_text, start, next_start)
+                if prev_ws != -1 and (end - (prev_ws + 1)) <= chunk_size // 2:
+                    next_start = prev_ws + 1
+                else:
+                    next_start = end
+
+        next_word_start = end
+        while next_word_start < text_len and cleaned_text[next_word_start].isspace():
+            next_word_start += 1
+        if next_word_start < text_len:
+            next_word_end = _find_first_whitespace(cleaned_text, next_word_start, text_len)
+            if next_word_end == -1:
+                next_word_end = text_len
+            if next_word_end - next_start > chunk_size:
+                min_start = min(next_word_start, next_word_end - chunk_size)
+                if min_start > next_start:
+                    ws_pos = _find_first_whitespace(cleaned_text, min_start, next_word_start)
+                    next_start = (ws_pos + 1) if ws_pos != -1 else next_word_start
+
+        if next_start <= start:
+            next_start = end
+
         start = next_start
 
     return chunks

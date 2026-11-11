@@ -303,6 +303,25 @@ async def test_ingestion_service(mocker):
     chunks = split_text_into_chunks(text, chunk_size=20, chunk_overlap=5)
     assert len(chunks) > 1
 
+    # Test chunking with long tokens (>150 chars: URLs, hashes, base64)
+    long_url = "https://internal.company.com/api/v2/resource?token=" + ("a" * 180)
+    long_b64 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + ("B" * 220)
+    doc_with_long_tokens = (
+        ("Корпоративний текст для перевірки чанкера. " * 10)
+        + f"\n{long_url}\n"
+        + ("Додатковий опис процедури авторизації. " * 10)
+        + f" {long_b64} "
+        + ("Завершальний абзац документації. " * 10)
+    )
+    long_token_chunks = split_text_into_chunks(doc_with_long_tokens, chunk_size=700, chunk_overlap=150)
+    assert any(long_url in c for c in long_token_chunks)
+    assert any(long_b64 in c for c in long_token_chunks)
+    for c in long_token_chunks:
+        if "a" * 20 in c:
+            assert long_url in c
+        if "B" * 20 in c:
+            assert long_b64 in c
+
     # Test text extraction txt
     content = b"Welcome to the knowledge base."
     pages = extract_text_and_pages("guide.txt", content)
